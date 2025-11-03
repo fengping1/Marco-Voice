@@ -449,13 +449,19 @@ from Models.marco_voice.cosyvoice_rodis.utils.file_utils import load_wav
 
 # Load pre-trained model
 model = CosyVoice('trained_model/v4', load_jit=False, load_onnx=False, fp16=False)
-emo = {"伤心": "Sad", "恐惧":"fearful", "快乐": "Happy", "惊喜": "Surprise", "生气": "Angry", "戏谑":"jolliest"} 
+emo = {"伤心": "Sad", "恐惧":"Fearful", "快乐": "Happy", "惊喜": "Surprise", "生气": "Angry", "戏谑":"Jolliest"} 
 prompt_speech_16k = load_wav("your_audio_path/exam.wav", 16000)
 emo_type="开心"
-if emo_type in ["伤心", "恐惧"]:
-    emotion_info = torch.load("./assets/emotion_info.pt")["zhu"][emo.get(emo_type)]
+if emo_type in ["惊喜", "快乐"]:
+    emotion_info = torch.load("./assets/emotion_info.pt")["male005"][emo.get(emo_type)]
+elif emo_type in ["伤心"]:
+    emotion_info = torch.load("./assets/emotion_info.pt")["female005"][emo.get(emo_type)]
+elif emo_type in ["生气"]:
+    emotion_info = torch.load("./assets/emotion_info.pt")["male005"][emo.get(emo_type)]
+elif emo_type in ["生气"]:
+    emotion_info = torch.load("./assets/emotion_info.pt")["female003"][emo.get(emo_type)]
 else:
-    emotion_info = torch.load("./assets/emotion_info.pt")["song"][emo.get(emo_type)]
+    emotion_info = torch.load("./assets/emotion_info.pt")["female005"][emo.get(emo_type)]
 # Voice cloning with discrete emotion
 for i, j in enumerate(model.synthesize(
     text="今天的天气真不错，我们出去散步吧！",
