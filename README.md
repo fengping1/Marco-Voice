@@ -442,6 +442,9 @@ bash Evaluation/cal_metrix.sh path_to_json_file path_to_output
 
 ### Basic Synthesis
 ```python
+import torch
+import torchaudio
+
 from Models.marco_voice.cosyvoice_rodis.cli.cosyvoice import CosyVoice
 from Models.marco_voice.cosyvoice_emosphere.cli.cosyvoice import CosyVoice as cosy_emosphere
 
