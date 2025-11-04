@@ -13,6 +13,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+# 
 from functools import partial
 import onnxruntime
 import torch
@@ -24,14 +25,14 @@ import torchaudio
 import os
 import re
 import inflect
-try:
-    import ttsfrd
-    use_ttsfrd = True
-except ImportError:
-    print("failed to import ttsfrd, use WeTextProcessing instead")
-    from tn.chinese.normalizer import Normalizer as ZhNormalizer
-    from tn.english.normalizer import Normalizer as EnNormalizer
-    use_ttsfrd = False
+# try:
+#     import ttsfrd
+#     use_ttsfrd = True
+# except ImportError:
+#     print("failed to import ttsfrd, use WeTextProcessing instead")
+from tn.chinese.normalizer import Normalizer as ZhNormalizer
+from tn.english.normalizer import Normalizer as EnNormalizer
+use_ttsfrd = False
 from ..utils.frontend_utils import contains_chinese, replace_blank, replace_corner_mark, remove_bracket, spell_out_number, split_paragraph
 
 class CosyVoiceFrontEnd:
@@ -65,9 +66,10 @@ class CosyVoiceFrontEnd:
         if self.use_ttsfrd:
             self.frd = ttsfrd.TtsFrontendEngine()
             ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
-            assert self.frd.initialize('{}/../../pretrained_models/CosyVoice-ttsfrd/resource'.format(ROOT_DIR)) is True, \
+            assert self.frd.initialize('/mnt/workspace/baipeng/project/Marco-Voice/Models/marco_voice/utils/pretrained_models/CosyVoice-ttsfrd/resource'.format(ROOT_DIR)) is True, \
                 'failed to initialize ttsfrd resource'
-            self.frd.set_lang_type('pinyin')
+
+            self.frd.set_lang_type('pinyinvg')
             self.frd.enable_pinyin_mix(True)
             self.frd.set_breakmodel_index(1)
         else:
@@ -75,9 +77,9 @@ class CosyVoiceFrontEnd:
             self.en_tn_model = EnNormalizer()
 
     def _extract_text_token(self, text):
-        text_token = self.tokenizer.encode(text, allowed_special=self.allowed_special)
+        text_token = self.tokenizer.encode(text, allowed_special=self.allowed_special) 
         text_token = torch.tensor([text_token], dtype=torch.int32).to(self.device)
-        text_token_len = torch.tensor([text_token.shape[1]], dtype=torch.int32).to(self.device)
+        text_token_len = torch.tensor([text_token.shape[1]], dtype=torch.int32).to(self.device) # 14 21
         return text_token, text_token_len
 
     def _extract_speech_token(self, speech):
@@ -135,6 +137,7 @@ class CosyVoiceFrontEnd:
                                          token_min_n=60, merge_len=20, comma_split=False))
         if split is False:
             return text
+
         return texts
 
     def frontend_sft(self, tts_text, spk_id):
@@ -146,10 +149,10 @@ class CosyVoiceFrontEnd:
     def frontend_zero_shot(self, tts_text, prompt_text, prompt_speech_16k, emotion_speakerminus):
         tts_text_token, tts_text_token_len = self._extract_text_token(tts_text)
         prompt_text_token, prompt_text_token_len = self._extract_text_token(prompt_text)
-        prompt_speech_22050 = torchaudio.transforms.Resample(orig_freq=16000, new_freq=22050)(prompt_speech_16k)
-        speech_feat, speech_feat_len = self._extract_speech_feat(prompt_speech_22050)
-        speech_token, speech_token_len = self._extract_speech_token(prompt_speech_16k)
-        embedding = self._extract_spk_embedding(prompt_speech_16k) #  + emotion_speakerminus.to(self._extract_spk_embedding(prompt_speech_16k).device)
+        prompt_speech_22050 = torchaudio.transforms.Resample(orig_freq=16000, new_freq=22050)(prompt_speech_16k) 
+        speech_feat, speech_feat_len = self._extract_speech_feat(prompt_speech_22050) 
+        speech_token, speech_token_len = self._extract_speech_token(prompt_speech_16k) 
+        embedding = self._extract_spk_embedding(prompt_speech_16k) 
         model_input = {'text': tts_text_token, 'text_len': tts_text_token_len,
                        'prompt_text': prompt_text_token, 'prompt_text_len': prompt_text_token_len,
                        'llm_prompt_speech_token': speech_token, 'llm_prompt_speech_token_len': speech_token_len,

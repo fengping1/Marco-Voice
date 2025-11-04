@@ -20,6 +20,7 @@
 from typing import Tuple
 
 import torch
+from torch import nn
 import torch.utils.checkpoint as ckpt
 
 from cosyvoice_rodis.transformer.convolution import ConvolutionModule
@@ -121,8 +122,8 @@ class BaseEncoder(torch.nn.Module):
         """Embed positions in tensor.
 
         Args:
-            xs: padded input tensor (B, T, D)
-            xs_lens: input length (B)
+            xs: padded input tensor (B, T, D).   [270,192,512]
+            xs_lens: input length (B). [270]
             decoding_chunk_size: decoding chunk size for dynamic chunk
                 0: default for training, use random dynamic chunk.
                 <0: for decoding, use full chunk.
@@ -143,9 +144,9 @@ class BaseEncoder(torch.nn.Module):
         """
         T = xs.size(1)
         masks = ~make_pad_mask(xs_lens, T).unsqueeze(1)  # (B, 1, T)
-        if self.global_cmvn is not None:
+        if self.global_cmvn is not None: #不进
             xs = self.global_cmvn(xs)
-        xs, pos_emb, masks = self.embed(xs, masks)
+        xs, pos_emb, masks = self.embed(xs, masks) #xs[B，T，512]  pos_emd[1,259,512]. masks[B,1,T]
         mask_pad = masks  # (B, 1, T/subsample_rate)
         chunk_masks = add_optional_chunk_mask(xs, masks,
                                               self.use_dynamic_chunk,
@@ -448,12 +449,15 @@ class StyleBaseEncoder(torch.nn.Module):
         """
         T = xs.size(1)
         masks = ~make_pad_mask(xs_lens, T).unsqueeze(1)  # (B, 1, T)
-        if self.global_cmvn is not None:
+        if self.global_cmvn is not None:#不进
             xs = self.global_cmvn(xs)
         if style_emb is not None and self.style_dim > 0:
             style_proj = self.style_proj(style_emb).unsqueeze(1)  # (B, 1, D)
             # 将风格信息添加到输入中
             xs = xs + style_proj
+        else:
+        # 让 style_proj 是全零张量，形状与 style_proj 一致
+            style_proj = torch.zeros(xs.size(0), 1, xs.size(2), device=xs.device, dtype=xs.dtype)#StyleConformer 不加这句报错 
 
         xs, pos_emb, masks = self.embed(xs, masks)
         mask_pad = masks  # (B, 1, T/subsample_rate)
@@ -463,10 +467,10 @@ class StyleBaseEncoder(torch.nn.Module):
                                               decoding_chunk_size,
                                               self.static_chunk_size,
                                               num_decoding_left_chunks)
-        if self.gradient_checkpointing and self.training:
+        if self.gradient_checkpointing and self.training: #不进
             xs = self.forward_layers_checkpointed(xs, chunk_masks, pos_emb, style_proj,
                                                   mask_pad)
-        else:
+        else:#进
             xs = self.forward_layers(xs, chunk_masks, pos_emb, style_proj, mask_pad)
         if self.normalize_before:
             xs = self.after_norm(xs)
@@ -499,7 +503,7 @@ class StyleBaseEncoder(torch.nn.Module):
     def forward_chunk(
         self,
         xs: torch.Tensor,
-        style: torch.tensor,
+        #style: torch.Tensor,
         offset: int,
         required_cache_size: int,
         att_cache: torch.Tensor = torch.zeros(0, 0, 0, 0),
@@ -569,7 +573,7 @@ class StyleBaseEncoder(torch.nn.Module):
                 xs,
                 att_mask,
                 pos_emb,
-                style_proj,
+                #style_proj,
                 att_cache=att_cache[i:i + 1] if elayers > 0 else att_cache,
                 cnn_cache=cnn_cache[i] if cnn_cache.size(0) > 0 else cnn_cache)
             # NOTE(xcsong): After layer.forward

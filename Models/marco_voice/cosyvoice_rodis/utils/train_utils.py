@@ -69,7 +69,7 @@ def init_dataset_and_dataloader(args, configs, gan):
     return train_dataset, cv_dataset, train_data_loader, cv_data_loader
 
 def check_modify_and_save_config(args, configs):
-    if args.train_engine == "torch_ddp":
+    if args.train_engine == "torch_ddp": #进
         configs['train_conf']["dtype"] = 'fp32'
     else:
         with open(args.deepspeed_config, 'r') as fin:
@@ -244,14 +244,14 @@ def batch_forward(model, batch, scaler, info_dict):
     else:
         autocast = torch.cuda.amp.autocast(enabled=True, dtype=dtype, cache_enabled=False)
 
-    with autocast:
-        info_dict['loss_dict'] = model(batch, device)
+    with autocast: #进
+        info_dict['loss_dict'] = model(batch, device)  #训练入口
     return info_dict
 
 def batch_backward(model, scaler, info_dict):
     if info_dict["train_engine"] == "deepspeed":
         scaled_loss = model.backward(info_dict['loss_dict']['loss'])
-    else:
+    else: #进
         scaled_loss = info_dict['loss_dict']['loss'] / info_dict['accum_grad']
         if scaler is not None:
             scaler.scale(scaled_loss).backward()
@@ -287,6 +287,35 @@ def update_parameter_and_lr(model, optimizer, scheduler, scaler, info_dict):
     info_dict["grad_norm"] = grad_norm
     return info_dict
 
+def update_parameter_and_lr_new(model, optimizer, scheduler, scaler, info_dict):
+    grad_norm = 0.0
+    if info_dict['train_engine'] == "deepspeed":
+        info_dict["is_gradient_accumulation_boundary"] = model.is_gradient_accumulation_boundary()
+        model.step()
+        grad_norm = model.get_global_grad_norm()
+    elif (info_dict['batch_idx'] + 1) % info_dict["accum_grad"] == 0:
+        # Use mixed precision training
+        if scaler is not None:
+            scaler.unscale_(optimizer)
+            grad_norm = clip_grad_norm_(model.parameters(), info_dict['grad_clip'])
+            # We don't check grad here since that if the gradient
+            # has inf/nan values, scaler.step will skip
+            # optimizer.step().
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            grad_norm = clip_grad_norm_(model.parameters(), info_dict['grad_clip'])
+            if torch.isfinite(grad_norm):
+                print(f"🔍 log_sigma_mi: {self.log_sigma_mi.item():.6f} | grad: {self.log_sigma_mi.grad}")
+                print(f"🔍 log_sigma_orth: {self.log_sigma_orth.item():.6f} | grad: {self.log_sigma_orth.grad}")
+                print(f"🔍 log_sigma_cross: {self.log_sigma_cross.item():.6f} | grad: {self.log_sigma_cross.grad}")
+                optimizer.step()
+        optimizer.zero_grad()
+        scheduler.step()
+    info_dict["lr"] = optimizer.param_groups[0]['lr']
+    info_dict["grad_norm"] = grad_norm
+    return info_dict
+
 def log_per_step(writer, info_dict):
     tag = info_dict["tag"]
     epoch = info_dict.get('epoch', 0)
@@ -313,6 +342,60 @@ def log_per_step(writer, info_dict):
             log_str += 'lr {:.8f} grad_norm {:.6f}'.format(
                 info_dict["lr"], info_dict['grad_norm'])
         log_str += ' rank {}'.format(rank)
+        logging.debug(log_str)
+
+def log_per_step_new(writer, info_dict):
+    tag = info_dict["tag"]
+    epoch = info_dict.get('epoch', 0)
+    step = info_dict["step"]
+    batch_idx = info_dict["batch_idx"]
+    loss_dict = info_dict['loss_dict']  # 包含所有 loss 和 sigma
+    rank = int(os.environ.get('RANK', 0))
+
+    # 只在 rank 0 写入 TensorBoard
+    if writer is not None:
+        is_update_step = (
+            (info_dict['train_engine'] == 'deepspeed' and info_dict.get('is_gradient_accumulation_boundary', False)) or
+            (info_dict['train_engine'] == 'torch_ddp' and (batch_idx + 1) % info_dict['accum_grad'] == 0)
+        )
+
+        if is_update_step:
+            # 写入 scalar metrics
+            for k in ['epoch', 'lr', 'grad_norm']:
+                if k in info_dict:
+                    writer.add_scalar(f'{tag}/{k}', info_dict[k], step + 1)
+
+            # 写入所有 loss
+            for loss_name in ['ce_loss', 'mi_loss', 'orth_loss', 'cross_orth_loss', 'acc']:
+                if loss_name in loss_dict:
+                    value = loss_dict[loss_name].item() if torch.is_tensor(loss_dict[loss_name]) else float(loss_dict[loss_name])
+                    writer.add_scalar(f'{tag}/{loss_name}', value, step + 1)
+
+            # 写入 sigma（可学习权重）
+            for sigma_name in ['sigma_mi', 'sigma_orth', 'sigma_cross']:
+                if sigma_name in loss_dict:
+                    value = loss_dict[sigma_name].item() if torch.is_tensor(loss_dict[sigma_name]) else float(loss_dict[sigma_name])
+                    writer.add_scalar(f'{tag}/{sigma_name}', value, step + 1)
+
+    # 🖨️ 终端日志打印
+    if (batch_idx + 1) % info_dict['log_interval'] == 0:
+        log_str = f'{tag} Epoch {epoch} Batch {batch_idx + 1} '
+        # 按顺序打印
+        order = ['ce_loss', 'mi_loss', 'orth_loss', 'cross_orth_loss', 'acc']
+        for name in order:
+            if name in loss_dict:
+                value = loss_dict[name].item() if torch.is_tensor(loss_dict[name]) else loss_dict[name]
+                log_str += f'{name} {value:.6f} '
+
+        # 打印 sigma（看看模型如何调整权重）
+        for s_name in ['sigma_mi', 'sigma_orth', 'sigma_cross']:
+            if s_name in loss_dict:
+                s_val = loss_dict[s_name].item() if torch.is_tensor(loss_dict[s_name]) else loss_dict[s_name]
+                log_str += f'{s_name} {s_val:.4f} '
+
+        if tag == "TRAIN":
+            log_str += f'lr {info_dict["lr"]:.8f} grad_norm {info_dict["grad_norm"]:.6f}'
+        log_str += f' rank {rank}'
         logging.debug(log_str)
 
 def log_per_save(writer, info_dict):

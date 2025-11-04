@@ -71,7 +71,7 @@ class TransformerLM(torch.nn.Module):
 
         # 3. [Optional] build speech token related modules
         self.speech_embedding = torch.nn.Embedding(speech_token_size, llm_input_size)
-        self.spk_embed_affine_layer = torch.nn.Linear(spk_embed_dim, llm_input_size)
+        self.spk_embed_affine_layer = torch.nn.Linear(spk_embed_dim, llm_input_size) #192-1024
 
         # 4. sampling method
         self.sampling = sampling
@@ -86,7 +86,7 @@ class TransformerLM(torch.nn.Module):
             text_lengths: torch.Tensor,
     ):
         encoder_out, encoder_mask = self.text_encoder(text, text_lengths, decoding_chunk_size=1, num_decoding_left_chunks=-1)
-        encoder_out_lens = encoder_mask.squeeze(1).sum(1)
+        encoder_out_lens = encoder_mask.squeeze(1).sum(1) 
         encoder_out = self.text_encoder_affine_layer(encoder_out)
         return encoder_out, encoder_out_lens
 
@@ -112,14 +112,14 @@ class TransformerLM(torch.nn.Module):
             loss and accurate 
         """
 
-        text_token = batch['text_token'].to(device)
+        text_token = batch['text_token'].to(device) 
         text_token_len = batch['text_token_len'].to(device)
         speech_token = batch['speech_token'].to(device)
         speech_token_len = batch['speech_token_len'].to(device)
         embedding = batch['embedding'].to(device)
         # 2. process emotion_embedding
         if self.emotion_embedding:
-            emotion_embedding = batch['emotion_embedding'].to(device)
+            emotion_embedding = batch['emotion_embedding'].to(device) 
         else:
             emotion_embedding = None
 
@@ -130,20 +130,23 @@ class TransformerLM(torch.nn.Module):
             embedding += emotion_embedding
             if self.cross_orth_loss:
                 orth_loss = 0.0
+                contrastive_loss = 0.0
                 batch_size = embedding.size(0)
-                # print("batch_size:", batch_size)
                 for i in range(batch_size):
                     for j in range(i + 1, batch_size):
+                        contrastive_loss=torch.abs(torch.dot(embedding[i], emotion_embedding[j]))
+                        orth_loss +=contrastive_loss
 
-                        orth_loss += torch.abs(torch.dot(embedding[i], emotion_embedding[j]))
                 if batch_size == 1:
                     orth_loss = 0
                 else:
-                    orth_loss /= (batch_size * (batch_size - 1)) / 2
+                    orth_loss /= (batch_size * (batch_size - 1)) / 2  
             else:
-                orth_loss = OrthogonalityLoss(embedding, emotion_embedding)
+                orth_loss = OrthogonalityLoss(embedding, emotion_embedding)  
         else:
             orth_loss = torch.tensor(0.0).to(device)  
+        
+        
 
         lm_target = [
             torch.tensor(
@@ -153,40 +156,37 @@ class TransformerLM(torch.nn.Module):
             )
             for i in range(text_token.size(0))
         ]
-        # lm_target = list(lm_target)
         lm_target = pad_sequence(lm_target, batch_first=True, padding_value=IGNORE_ID).to(device)
 
-        text_token = self.text_embedding(text_token)
+        text_token = self.text_embedding(text_token)  #[B,T,512] 221,31,1024
         text_token, text_token_len = self.encode(text_token, text_token_len)
 
         embedding = F.normalize(embedding, dim=1)
         embedding = self.spk_embed_affine_layer(embedding)
-        embedding = embedding.unsqueeze(1)
+        embedding = embedding.unsqueeze(1) 
 
         if self.emotion_embedding and emotion_embedding is not None:
             emotion_embedding = F.normalize(emotion_embedding, dim=1)
-            emotion_embedding = self.spk_embed_affine_layer(emotion_embedding)
-            emotion_embedding = emotion_embedding.unsqueeze(1)
+            emotion_embedding = self.spk_embed_affine_layer(emotion_embedding) 
+            emotion_embedding = emotion_embedding.unsqueeze(1) 
             embedding += emotion_embedding 
         sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
         task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
 
-        speech_token = self.speech_embedding(speech_token)
-
+        speech_token = self.speech_embedding(speech_token)  
         lm_input, lm_input_len = self.pad_unpad_sequence(sos_eos_emb, embedding, text_token, text_token_len,
                                                          task_id_emb, speech_token, speech_token_len)
 
         # 6. run lm forward
-        lm_output, lm_output_mask = self.llm(lm_input, lm_input_len.to(device))
-        logits = self.llm_decoder(lm_output)
-        loss = self.criterion_ce(logits, lm_target)
+        lm_output, lm_output_mask = self.llm(lm_input, lm_input_len.to(device)) 
+        logits = self.llm_decoder(lm_output) 
+        loss = self.criterion_ce(logits, lm_target) 
         acc = th_accuracy(logits.view(-1, self.speech_token_size + 1), lm_target, ignore_label=IGNORE_ID)
-        # return {'loss': loss, 'acc': acc}
 
         if self.orth_loss and self.emotion_embedding:
             loss += orth_loss
 
-        return {'loss': loss, 'acc': acc}
+        return {'loss': loss, 'acc': acc,"ce_loss":self.criterion_ce(logits, lm_target),"orth_loss":orth_loss,"contrastive_loss":contrastive_loss}
 
     def sampling_ids(
             self,
@@ -223,34 +223,34 @@ class TransformerLM(torch.nn.Module):
 
         # 1. encode text
         text, text_len = self.encode(text, text_len)
-        # import pdb;pdb.set_trace()
+        
         # 2. encode embedding
         if embedding.shape[0] != 0:
             embedding = F.normalize(embedding, dim=1)
             embedding = self.spk_embed_affine_layer(embedding)
             embedding = embedding.unsqueeze(dim=1)
         else:
-            embedding = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device)
+            embedding = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device) 
 
         # 3. handle emotion embedding
         if self.emotion_embedding and emotion_embedding is not None:
-            emotion_embedding = F.normalize(emotion_embedding.unsqueeze(0).to(torch.float16), dim=1)
+            emotion_embedding = F.normalize(emotion_embedding.unsqueeze(0).to(torch.float32), dim=1) 
             emotion_embedding = self.spk_embed_affine_layer(emotion_embedding)
             emotion_embedding = emotion_embedding.unsqueeze(dim=1) #  * 1.5
-            embedding += emotion_embedding  
+            embedding += emotion_embedding 
 
         # 4. concat llm_input
-        sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1)
-        task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1)
+        sos_eos_emb = self.llm_embedding.weight[self.sos_eos].reshape(1, 1, -1) 
+        task_id_emb = self.llm_embedding.weight[self.task_id].reshape(1, 1, -1) 
         if prompt_speech_token_len != 0:
-            prompt_speech_token_emb = self.speech_embedding(prompt_speech_token)
+            prompt_speech_token_emb = self.speech_embedding(prompt_speech_token) 
         else:
             prompt_speech_token_emb = torch.zeros(1, 0, self.llm_input_size, dtype=text.dtype).to(device)
         lm_input = torch.concat([sos_eos_emb, embedding, text, task_id_emb, prompt_speech_token_emb], dim=1)
 
         # 5. cal min/max_length
-        min_len = int((text_len - prompt_text_len) * min_token_text_ratio)
-        max_len = int((text_len - prompt_text_len) * max_token_text_ratio)
+        min_len = int((text_len - prompt_text_len) * min_token_text_ratio) 
+        max_len = int((text_len - prompt_text_len) * max_token_text_ratio) 
 
         # 6. step by step decode
         out_tokens = []

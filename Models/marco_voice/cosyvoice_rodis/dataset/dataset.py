@@ -142,7 +142,7 @@ def Dataset(data_list_file,
     """
     # import pdb;pdb.set_trace()
     assert mode in ['train', 'inference']
-    lists = read_lists(data_list_file)
+    lists = read_lists(data_list_file) #读取文件数据
     if mode == 'inference':
         with open(tts_file) as f:
             tts_data = json.load(f)
@@ -151,7 +151,7 @@ def Dataset(data_list_file,
         lists = list({utt2lists[utt] for utt in tts_data.keys() if utt2lists[utt] in lists})
     dataset = DataList(lists,
                        shuffle=shuffle,
-                       partition=partition)
+                       partition=partition) #list就是tar文件
     if mode == 'inference':
         # map partial arg to parquet_opener func in inference mode
         data_pipeline[0] = partial(data_pipeline[0], tts_data=tts_data)

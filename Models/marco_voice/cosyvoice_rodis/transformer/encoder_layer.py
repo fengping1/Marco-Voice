@@ -21,7 +21,7 @@ from typing import Optional, Tuple
 
 import torch
 from torch import nn
-
+from torch.nn import functional as F
 class TransformerEncoderLayer(nn.Module):
     """Encoder layer module.
 
@@ -387,7 +387,7 @@ class StyleConformerEncoderLayer(nn.Module):
             torch.Tensor: Updated convolution cache
         """
         # Macaron-style feed forward (pre-normalization)
-        if self.feed_forward_macaron is not None:
+        if self.feed_forward_macaron is not None:#不进
             residual = x
             if self.normalize_before:
                 x = self.norm_ff_macaron(x)

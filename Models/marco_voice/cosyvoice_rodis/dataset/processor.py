@@ -39,7 +39,7 @@ def parquet_opener(data, mode='train', tts_data={}):
     """
     for sample in data:
         assert 'src' in sample
-        url = sample['src']
+        url = sample['src'] #'/mnt/workspace/baipeng/project/Marco-Voice/Dataset/hunhe_data/LZED/processed_xiaoyu30_new/train/parquet/parquet_000000001.tar'
         try:
             df = pq.read_table(url).to_pandas()
             for i in range(len(df)):

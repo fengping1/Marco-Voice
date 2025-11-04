@@ -62,43 +62,48 @@ class MaskedDiffWithXvec(torch.nn.Module):
             batch: dict,
             device: torch.device,
     ) -> Dict[str, Optional[torch.Tensor]]:
-        token = batch['speech_token'].to(device)
-        token_len = batch['speech_token_len'].to(device)
-        feat = batch['speech_feat'].to(device)
-        feat_len = batch['speech_feat_len'].to(device)
-        embedding = batch['embedding'].to(device)
+        token = batch['speech_token'].to(device)  
+        token_len = batch['speech_token_len'].to(device) 
+        feat = batch['speech_feat'].to(device) 
+        feat_len = batch['speech_feat_len'].to(device) 
+        embedding = batch['embedding'].to(device) 
 
-        # processing flow_emotion_embedding
+
         if self.flow_emotion_embedding:
-            flow_emotion_embedding = batch['emotion_embedding'].to(device)
+            flow_emotion_embedding = batch['emotion_embedding'].to(device) #[270,192]
             flow_emotion_embedding = F.normalize(flow_emotion_embedding, dim=1)
             flow_emotion_embedding = self.flow_emotion_embedding_proj(flow_emotion_embedding)
             embedding = self.speaker_projector(embedding)
-            embedding += flow_emotion_embedding  
-            if self.cross_orth_loss:
-                orth_loss = 0.0
+            
+            if self.cross_orth_loss:  #false
+                print("进")  
+                orth_loss = 0.0            
                 batch_size = embedding.size(0)
-                for i in range(batch_size):
-                    for j in range(i + 1, batch_size):
-                        #  cross loss
-                        orth_loss += torch.abs(torch.dot(embedding[i], emotion_embedding[j]))
-                orth_loss /= (batch_size * (batch_size - 1)) / 2
+                if batch_size > 1:
+                    batch_contrastive_orth_loss=0
+                    for i in range(batch_size):
+                        for j in range(i + 1, batch_size):
+                            
+                            batch_contrastive_orth_loss =batch_contrastive_orth_loss+ torch.abs(torch.dot(embedding[i], flow_emotion_embedding[j])) 
+                    num_pairs = (batch_size * (batch_size - 1)) / 2  
+                    batch_contrastive_orth_loss = batch_contrastive_orth_loss / num_pairs
+                else:
+                    batch_contrastive_orth_loss = 0
+                orth_loss = OrthogonalityLoss(embedding, flow_emotion_embedding)
             else:
                 orth_loss = OrthogonalityLoss(embedding, flow_emotion_embedding)
+                
 
-        # xvec projection
         embedding = F.normalize(embedding, dim=1)
-        embedding = self.spk_embed_affine_layer(embedding)
+        embedding = self.spk_embed_affine_layer(embedding) 
 
-        # concat text and prompt_text
-        mask = (~make_pad_mask(token_len)).float().unsqueeze(-1).to(device)
-        token = self.input_embedding(torch.clamp(token, min=0)) * mask
+        mask = (~make_pad_mask(token_len)).float().unsqueeze(-1).to(device) 
+        token = self.input_embedding(torch.clamp(token, min=0)) * mask  
 
         # text encode
-        h, h_lengths = self.encoder(token, token_len)
-        h = self.encoder_proj(h)
-        h, h_lengths = self.length_regulator(h, feat_len)
-
+        h, h_lengths = self.encoder(token, token_len, flow_emotion_embedding) 
+        h = self.encoder_proj(h) 
+        h, h_lengths = self.length_regulator(h, feat_len) 
         # get conditions
         conds = torch.zeros(feat.shape, device=token.device)
         for i, j in enumerate(feat_len):
@@ -106,23 +111,22 @@ class MaskedDiffWithXvec(torch.nn.Module):
                 continue
             index = random.randint(0, int(0.3 * j))
             conds[i, :index] = feat[i, :index]
-        conds = conds.transpose(1, 2)
+        conds = conds.transpose(1, 2)  
 
         mask = (~make_pad_mask(feat_len)).to(h)
-        feat = F.interpolate(feat.unsqueeze(dim=1), size=h.shape[1:], mode="nearest").squeeze(dim=1)
-        loss, _ = self.decoder.compute_loss(
+        feat = F.interpolate(feat.unsqueeze(dim=1), size=h.shape[1:], mode="nearest").squeeze(dim=1) 
+        mse_loss, _ = self.decoder.compute_loss(
             feat.transpose(1, 2).contiguous(),
             mask.unsqueeze(1),
-            h.transpose(1, 2).contiguous(),
-            embedding,
-            cond=conds
-        )
-
+            h.transpose(1, 2).contiguous(), 
+            embedding,  
+            cond=conds  
+        ) 
         if self.flow_orth_loss and self.flow_emotion_embedding:
 
-            loss += orth_loss
+            loss =mse_loss+ orth_loss+batch_contrastive_orth_loss
 
-        return {'loss': loss}
+        return {'loss': loss, "mse_loss":mse_loss,"orth_loss":orth_loss,"contrastive_loss":batch_contrastive_orth_loss}
 
     @torch.inference_mode()
     def inference(self,
@@ -134,12 +138,11 @@ class MaskedDiffWithXvec(torch.nn.Module):
                   prompt_feat_len,
                   embedding,
                   flow_cache,
-                  flow_emotion_embedding=None):  # new flow_emotion_embedding
+                  flow_emotion_embedding=None):  
         assert token.shape[0] == 1
-        # processing flow_emotion_embedding
-        if self.flow_emotion_embedding and flow_emotion_embedding is not None:
+        if self.flow_emotion_embedding and flow_emotion_embedding is not None: 
             flow_emotion_embedding = F.normalize(flow_emotion_embedding.unsqueeze(0).to(torch.float16), dim=1)
-            flow_emotion_embedding = self.flow_emotion_embedding_proj(flow_emotion_embedding) #  * 1.5
+            flow_emotion_embedding = self.flow_emotion_embedding_proj(flow_emotion_embedding) 
             embedding = self.speaker_projector(embedding)
             embedding += flow_emotion_embedding  
 
@@ -148,32 +151,32 @@ class MaskedDiffWithXvec(torch.nn.Module):
         embedding = self.spk_embed_affine_layer(embedding)
 
         # concat text and prompt_text
-        token_len1, token_len2 = prompt_token.shape[1], token.shape[1]
-        token, token_len = torch.concat([prompt_token, token], dim=1), prompt_token_len + token_len
+        token_len1, token_len2 = prompt_token.shape[1], token.shape[1] 
+        token, token_len = torch.concat([prompt_token, token], dim=1), prompt_token_len + token_len 
         mask = (~make_pad_mask(token_len)).unsqueeze(-1).to(embedding)
-        token = self.input_embedding(torch.clamp(token, min=0)) * mask
+        token = self.input_embedding(torch.clamp(token, min=0)) * mask  
 
         # text encode
-        h, h_lengths = self.encoder(token, token_len)
-        h = self.encoder_proj(h)
-        mel_len1, mel_len2 = prompt_feat.shape[1], int(token_len2 / self.input_frame_rate * 22050 / 256)
-        h, h_lengths = self.length_regulator.inference(h[:, :token_len1], h[:, token_len1:], mel_len1, mel_len2, self.input_frame_rate)
+        h, h_lengths = self.encoder(token, token_len, flow_emotion_embedding)
+        h = self.encoder_proj(h) #torch.Size([1, 358, 80])
+        mel_len1, mel_len2 = prompt_feat.shape[1], int(token_len2 / self.input_frame_rate * 22050 / 256) 
+        h, h_lengths = self.length_regulator.inference(h[:, :token_len1], h[:, token_len1:], mel_len1, mel_len2, self.input_frame_rate) 
 
         # get conditions
-        conds = torch.zeros([1, mel_len1 + mel_len2, self.output_size], device=token.device)
-        conds[:, :mel_len1] = prompt_feat
-        conds = conds.transpose(1, 2)
+        conds = torch.zeros([1, mel_len1 + mel_len2, self.output_size], device=token.device) 
+        conds[:, :mel_len1] = prompt_feat 
+        conds = conds.transpose(1, 2) 
 
         mask = (~make_pad_mask(torch.tensor([mel_len1 + mel_len2]))).to(h)
         feat, flow_cache = self.decoder(
-            mu=h.transpose(1, 2).contiguous(),
-            mask=mask.unsqueeze(1),
-            spks=embedding,
-            cond=conds,
+            mu=h.transpose(1, 2).contiguous(), 
+            mask=mask.unsqueeze(1), 
+            spks=embedding, 
+            cond=conds, 
             n_timesteps=10,
-            prompt_len=mel_len1,
-            flow_cache=flow_cache
-        )
-        feat = feat[:, :, mel_len1:]
+            prompt_len=mel_len1, 
+            flow_cache=flow_cache 
+        ) 
+        feat = feat[:, :, mel_len1:] 
         assert feat.shape[2] == mel_len2
         return feat, flow_cache

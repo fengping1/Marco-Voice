@@ -133,7 +133,7 @@ class ConditionalCFM(BASECFM):
 
         Args:
             x1 (torch.Tensor): Target
-                shape: (batch_size, n_feats, mel_timesteps)
+                shape: (batch_size, n_feats, mel_timesteps).   [175,80,342]
             mask (torch.Tensor): target mask
                 shape: (batch_size, 1, mel_timesteps)
             mu (torch.Tensor): output of encoder
@@ -152,19 +152,17 @@ class ConditionalCFM(BASECFM):
         t = torch.rand([b, 1, 1], device=mu.device, dtype=mu.dtype)
         if self.t_scheduler == 'cosine':
             t = 1 - torch.cos(t * 0.5 * torch.pi)
-        # sample noise p(x_0)
         z = torch.randn_like(x1)
 
-        y = (1 - (1 - self.sigma_min) * t) * z + t * x1
+        y = (1 - (1 - self.sigma_min) * t) * z + t * x1   
         u = x1 - (1 - self.sigma_min) * z
 
-        # during training, we randomly drop condition to trade off mode coverage and sample fidelity
-        if self.training_cfg_rate > 0:
-            cfg_mask = torch.rand(b, device=x1.device) > self.training_cfg_rate
-            mu = mu * cfg_mask.view(-1, 1, 1)
-            spks = spks * cfg_mask.view(-1, 1)
-            cond = cond * cfg_mask.view(-1, 1, 1)
+        if self.training_cfg_rate > 0:    
+            cfg_mask = torch.rand(b, device=x1.device) > self.training_cfg_rate  
+            mu = mu * cfg_mask.view(-1, 1, 1)   
+            spks = spks * cfg_mask.view(-1, 1)   
+            cond = cond * cfg_mask.view(-1, 1, 1) 
 
         pred = self.estimator(y, mask, mu, t.squeeze(), spks, cond)
-        loss = F.mse_loss(pred * mask, u * mask, reduction="sum") / (torch.sum(mask) * u.shape[1])
+        loss = F.mse_loss(pred * mask, u * mask, reduction="sum") / (torch.sum(mask) * u.shape[1]) 
         return loss, y

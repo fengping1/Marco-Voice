@@ -55,7 +55,7 @@ def spell_out_number(text: str, inflect_parser):
     return ''.join(new_text)
 
 # split paragrah logic：
-# 1. per sentence max len token_max_n, min len token_min_n, merge if last sentence len less than merge_len
+# 1. per sentence max len token_max_n, min len token_min_n, me rge if last sentence len less than merge_len
 # 2. cal sentence len according to lang
 # 3. split sentence according to puncatation
 def split_paragraph(text: str, tokenize, lang="zh", token_max_n=80, token_min_n=60, merge_len=20, comma_split=False):

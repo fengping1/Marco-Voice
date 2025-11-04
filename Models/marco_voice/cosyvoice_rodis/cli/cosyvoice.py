@@ -64,18 +64,17 @@ class CosyVoice:
                 logging.info('yield speech len {}, rtf {}'.format(speech_len, (time.time() - start_time) / speech_len))
                 yield model_output
                 start_time = time.time()
-                                # script, prompt_text, prompt_speech_16k, key, emotion_speakerminus
-    # for i, j in enumerate(cosyvoice.inference_zero_shot(script, prompt_text, prompt_speech_16k, key, emotion_speakerminus)):
-    def synthesize(self, tts_text, prompt_text, prompt_speech_16k, key, emotion_speakerminus, stream=False, speed=1.0):
+    def synthesize(self, tts_text, prompt_text, prompt_speech_16k, key, emotion_embedding, stream=False, speed=1.0):
         prompt_text = self.frontend.text_normalize(key+'<endofprompt>' + prompt_text, split=False)
         for i in tqdm(self.frontend.text_normalize(tts_text, split=True)):
             if len(i) < 0.5 * len(prompt_text):
                 logging.warning('synthesis text {} too short than prompt text {}, this may lead to bad performance'.format(i, prompt_text))
-            model_input = self.frontend.frontend_zero_shot(i, prompt_text, prompt_speech_16k, emotion_speakerminus)
+            model_input = self.frontend.frontend_zero_shot(i, prompt_text, prompt_speech_16k,emotion_embedding) 
+            print("input:", model_input)
             start_time = time.time()
             logging.info('synthesis text {}'.format(i))
             for model_output in self.model.tts(**model_input, stream=stream, speed=speed):
-                speech_len = model_output['tts_speech'].shape[1] / 22050
+                speech_len = model_output['tts_speech'].shape[1] / 22050 
                 logging.info('yield speech len {}, rtf {}'.format(speech_len, (time.time() - start_time) / speech_len))
                 yield model_output
                 start_time = time.time()
@@ -94,8 +93,6 @@ class CosyVoice:
                 start_time = time.time()
 
     def inference_instruct(self, tts_text, spk_id, instruct_text, stream=False, speed=1.0):
-        #if self.frontend.instruct is False:
-        #    raise ValueError('{} do not support instruct inference'.format(self.model_dir))
         instruct_text = self.frontend.text_normalize(instruct_text, split=False)
         for i in tqdm(self.frontend.text_normalize(tts_text, split=True)):
             model_input = self.frontend.frontend_instruct(i, spk_id, instruct_text)

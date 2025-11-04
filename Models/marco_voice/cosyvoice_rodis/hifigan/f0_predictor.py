@@ -51,6 +51,6 @@ class ConvRNNF0Predictor(nn.Module):
         self.classifier = nn.Linear(in_features=cond_channels, out_features=self.num_class)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.condnet(x)
+        x = self.condnet(x) #torch.Size([1, 512, 353])
         x = x.transpose(1, 2)
         return torch.abs(self.classifier(x).squeeze(-1))

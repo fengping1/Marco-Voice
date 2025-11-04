@@ -16,6 +16,9 @@
 
 from __future__ import print_function
 import sys
+print("_+++++++++++++++++++++")
+print(sys.path)
+sys.path.append("/mnt/workspace/baipeng/project/Marco-Voice/Models/marco_voice")
 import argparse
 import datetime
 import logging
@@ -37,7 +40,6 @@ from cosyvoice_rodis.utils.train_utils import (
     init_optimizer_and_scheduler,
     init_summarywriter, save_model,
     wrap_cuda_model, check_modify_and_save_config)
-
 def get_args():
     parser = argparse.ArgumentParser(description='training your network')
     parser.add_argument('--train_engine',
@@ -110,7 +112,6 @@ def main():
     # Get dataset & dataloader
     train_dataset, cv_dataset, train_data_loader, cv_data_loader = \
         init_dataset_and_dataloader(args, configs, gan)
-
     # Do some sanity checks and save config to arsg.model_dir
     configs = check_modify_and_save_config(args, configs)
 
@@ -151,7 +152,7 @@ def main():
             executor.train_one_epoc_gan(model, optimizer, scheduler, optimizer_d, scheduler_d, train_data_loader, cv_data_loader,
                                         writer, info_dict, scaler, group_join)
         else:
-            executor.train_one_epoc(model, optimizer, scheduler, train_data_loader, cv_data_loader, writer, info_dict, scaler, group_join)
+            executor.train_one_epoc(model, optimizer, scheduler, train_data_loader, cv_data_loader, writer, info_dict, scaler, group_join) #进
         dist.destroy_process_group(group_join)
 
 if __name__ == '__main__':
